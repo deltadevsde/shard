@@ -1,3 +1,4 @@
+use anyhow::bail;
 use anyhow::{Context, Result};
 use std::env;
 use std::fs;
@@ -327,6 +328,168 @@ fn create_project(project_name: &str) -> Result<()> {
     Ok(())
 }
 
+fn create_tx_template(tx_name: &str, fields: &[(String, String)]) -> String {
+    let fields_struct = fields
+        .iter()
+        .map(|(name, type_)| format!("        {}: {},", name, type_))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let verify_match = format!(
+        r#"            Self::{} {{ {} }} => {{
+                // TODO: Add verification logic here
+                Ok(())
+            }}"#,
+        tx_name,
+        fields
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+
+    let process_match = format!(
+        r#"            Self::{} {{ {} }} => {{
+                // TODO: Add transaction processing logic here
+                Ok(())
+            }}"#,
+        tx_name,
+        fields
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+
+    format!(
+        r#"use anyhow::{{Context, Result}};
+use celestia_types::Blob;
+use serde::{{Deserialize, Serialize}};
+
+/// Represents the full set of transaction types supported by the system.
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub enum Transaction {{
+    {} {{ {} }},
+    Noop,
+}}
+
+impl Transaction {{
+    pub fn verify(&self) -> Result<()> {{
+        match self {{
+{}
+            Self::Noop => Ok(()),
+        }}
+    }}
+
+    pub fn process(&self, state: &mut crate::state::State) -> Result<()> {{
+        match self {{
+{}
+            Self::Noop => Ok(()),
+        }}
+    }}
+}}
+
+#[derive(Serialize, Deserialize)]
+pub struct Batch(Vec<Transaction>);
+
+impl Batch {{
+    pub fn new(txs: Vec<Transaction>) -> Self {{
+        Batch(txs.clone())
+    }}
+
+    pub fn get_transactions(&self) -> Vec<Transaction> {{
+        self.0.clone()
+    }}
+}}
+
+impl TryFrom<&Blob> for Batch {{
+    type Error = anyhow::Error;
+
+    fn try_from(value: &Blob) -> Result<Self, Self::Error> {{
+        match bincode::deserialize(&value.data) {{
+            Ok(batch) => Ok(batch),
+            Err(_) => {{
+                let transaction: Transaction = bincode::deserialize(&value.data)
+                    .context(format!("Failed to decode blob into Transaction: {{value:?}}"))?;
+
+                Ok(Batch(vec![transaction]))
+            }}
+        }}
+    }}
+}}"#,
+        tx_name, fields_struct, verify_match, process_match,
+    )
+}
+
+fn update_state_rs(path: &Path) -> Result<()> {
+    let content = r#"use crate::tx::Transaction;
+use anyhow::Result;
+
+pub struct State {}
+
+impl State {
+    pub fn new() -> Self {
+        State {}
+    }
+
+    /// Validates a transaction against the current chain state.
+    /// Called during [`process_tx`], but can also be used independently, for
+    /// example when queuing transactions to be batched.
+    pub(crate) fn validate_tx(&self, tx: Transaction) -> Result<()> {
+        tx.verify()?;
+        Ok(())
+    }
+
+    /// Processes a transaction by validating it and updating the state.
+    pub(crate) fn process_tx(&mut self, tx: Transaction) -> Result<()> {
+        self.validate_tx(tx.clone())?;
+        tx.process(self)?;
+        Ok(())
+    }
+}"#;
+
+    fs::write(path.join("src").join("state.rs"), content)?;
+    Ok(())
+}
+
+fn create_transaction(
+    project_path: &str,
+    tx_name: &str,
+    fields: Vec<(String, String)>,
+) -> Result<()> {
+    let path = Path::new(project_path);
+    if !path.exists() {
+        bail!("Project directory not found. Make sure you're in the correct directory.");
+    }
+
+    let tx_content = create_tx_template(tx_name, &fields);
+    fs::write(path.join("src").join("tx.rs"), tx_content)?;
+
+    update_state_rs(path)?;
+
+    println!("✨ Created new transaction type: {}", tx_name);
+    println!("Transaction fields:");
+    for (tx_field_name, tx_field_type) in fields {
+        println!("  {}: {}", tx_field_name, tx_field_type);
+    }
+    println!("\nUpdate the verify() and process() methods in src/tx.rs to add your custom logic!");
+
+    Ok(())
+}
+
+fn parse_fields(args: &[String]) -> Vec<(String, String)> {
+    args.chunks(2)
+        .map(|chunk| {
+            if chunk.len() == 2 {
+                (chunk[0].clone(), chunk[1].clone())
+            } else {
+                // or no default type?
+                (chunk[0].clone(), "String".to_string())
+            }
+        })
+        .collect()
+}
+
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
 
@@ -335,11 +498,22 @@ fn main() -> Result<()> {
             let project_name = args.get(2).map(|s| s.as_str()).unwrap_or("my-rollup");
             create_project(project_name)?;
         }
+        Some("create-tx") => {
+            if args.len() < 4 {
+                println!("Usage: shard create-tx <tx-name> [field_name field_type]...");
+                println!("Example: shard create-tx SendMessage msg String user String");
+                return Ok(());
+            }
+
+            let tx_name = &args[2];
+            let fields = parse_fields(&args[3..]);
+            // maybe print if some type is missing...
+            create_transaction(".", tx_name, fields)?;
+        }
         _ => {
-            println!("Usage: shard init [project-name]");
-            println!(
-                "Creates a new rollup project with the specified name (defaults to my-rollup)"
-            );
+            println!("Usage:");
+            println!("  shard init [project-name]");
+            println!("  shard create-tx <tx-name> [field_name field_type]...");
         }
     }
 
