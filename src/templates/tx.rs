@@ -1,16 +1,19 @@
 use anyhow::{Context, Result};
 use celestia_types::Blob;
+use clap::Subcommand;
 use serde::{Deserialize, Serialize};
 
 /// Represents the full set of transaction types supported by the system.
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]
 pub enum Transaction {
     Noop,
 }
 
 impl Transaction {
     pub fn verify(&self) -> Result<()> {
-        Ok(())
+        match self {
+            Transaction::Noop => Ok(()),
+        }
     }
 }
 

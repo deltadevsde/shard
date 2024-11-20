@@ -31,6 +31,7 @@ fn write_template_files(src_dir: &Path) -> Result<()> {
         ("node.rs", templates::NODE_RS),
         ("state.rs", templates::STATE_RS),
         ("tx.rs", templates::TX_RS),
+        ("webserver.rs", templates::SERVER_RS),
     ];
 
     for (filename, content) in files {

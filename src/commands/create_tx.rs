@@ -1,6 +1,7 @@
 use crate::templates;
 use anyhow::{bail, Result};
 use std::fs;
+use std::ops::Deref;
 use std::path::Path;
 
 pub fn parse_fields(args: &[String]) -> Vec<(String, String)> {
@@ -27,6 +28,9 @@ pub fn create_transaction(
 
     let tx_content = modify_tx_file(tx_name, &fields)?;
     fs::write(path.join("src").join("tx.rs"), tx_content)?;
+
+    let state_content = modify_state_file(tx_name, &fields)?;
+    fs::write(path.join("src").join("state.rs"), state_content)?;
 
     print_transaction_info(tx_name, &fields);
     Ok(())
@@ -58,9 +62,9 @@ fn modify_tx_file(tx_name: &str, fields: &[(String, String)]) -> Result<String> 
     };
 
     let modified = tx_file.replace(
-        "#[derive(Clone, Serialize, Deserialize, Debug)]\npub enum Transaction {\n    Noop,\n}",
+        "#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]\npub enum Transaction {\n    Noop,\n}",
         &format!(
-            "#[derive(Clone, Serialize, Deserialize, Debug)]\npub enum Transaction {{\n{}\n}}",
+            "#[derive(Subcommand, Clone, Serialize, Deserialize, Debug)]\npub enum Transaction {{\n{}\n}}",
             new_variant
         ),
     );
@@ -82,13 +86,48 @@ fn modify_tx_file(tx_name: &str, fields: &[(String, String)]) -> Result<String> 
     );
 
     let modified = modified.replace(
-        "pub fn verify(&self) -> Result<()> {
-			Ok(())   
-		}",
-        &format!(
-            "pub fn verify(&self) -> Result<()> {{\n{}\n    }}",
-            verify_match
-        ),
+        "    pub fn verify(&self) -> Result<()> {\n        match self {\n            Transaction::Noop => Ok(()),\n        }\n    }",
+        &format!("    pub fn verify(&self) -> Result<()> {{\n{}\n    }}", verify_match)
+    );
+
+    Ok(modified)
+}
+
+fn modify_state_file(tx_name: &str, fields: &[(String, String)]) -> Result<String> {
+    let state_file = templates::STATE_RS;
+
+    let fields_pattern = fields
+        .iter()
+        .map(|(name, _)| name.deref())
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let validate_match = format!(
+        r#"        match tx {{
+            Transaction::{} {{ {} }} => Ok(()),
+            Transaction::Noop => Ok(()),
+        }}"#,
+        tx_name, fields_pattern
+    );
+
+    let process_match = format!(
+        r#"        match tx {{
+            Transaction::{} {{ {} }} => Ok(()),
+            Transaction::Noop => Ok(()),
+        }}"#,
+        tx_name, fields_pattern
+    );
+
+    // Replace validate_tx match
+    let modified = state_file.replace(
+        "        match tx {\n            Transaction::Noop => Ok(()),\n        }",
+        &validate_match,
+    );
+
+    // Replace process_tx match
+    let modified = modified.replace(
+        "        match tx {\n            Transaction::Noop => Ok(()),\n        }",
+        &process_match,
     );
 
     Ok(modified)

@@ -1,15 +1,16 @@
 use anyhow::{Context, Result};
-use async_channel::{bounded, Receiver, Sender};
 use async_lock::Mutex;
+use axum::routing::post;
+use axum::Router;
 use celestia_rpc::{BlobClient, HeaderClient};
 use celestia_types::{nmt::Namespace, Blob, TxConfig};
 use futures_lite::future;
-use smol::Timer;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::runtime::Runtime;
+use tokio::sync::Notify;
 
 use crate::tx::Batch;
+use crate::webserver::submit_tx;
 use crate::{state::State, tx::Transaction};
 
 const DEFAULT_BATCH_INTERVAL: Duration = Duration::from_secs(3);
@@ -20,9 +21,16 @@ pub struct Config {
     pub namespace: Namespace,
 
     /// The height from which to start syncing.
+    // TODO: Backwards sync, accepting trusted state (celestia blocks get
+    // pruned)
     pub start_height: u64,
 
+    /// The address to listen on for the node's webserver.
+    pub listen_addr: String,
+
     /// The URL of the Celestia node to connect to.
+    // TODO: Move fully to Lumina, only use a url for posting transactions
+    // until p2p tx transmission is implemented
     pub celestia_url: String,
     /// The auth token to use when connecting to Celestia.
     pub auth_token: Option<String>,
@@ -36,7 +44,8 @@ impl Default for Config {
         Config {
             namespace: Namespace::new_v0(&[42, 42, 42, 42]).unwrap(),
             start_height: 1,
-            celestia_url: "ws://localhost:26658".to_string(),
+            listen_addr: "0.0.0.0:3000".to_string(),
+            celestia_url: "ws://0.0.0.0:26658".to_string(),
             auth_token: None,
             batch_interval: DEFAULT_BATCH_INTERVAL,
         }
@@ -55,29 +64,23 @@ pub struct Node {
 
     /// Used to notify the syncer that genesis sync has completed, and queued
     /// stored blocks from incoming sync can be processed
-    genesis_sync_completed: (Sender<()>, Receiver<()>),
-
-    /// The tokio runtime needed to run lumina-rpc
-    tokio_runtime: Runtime,
+    genesis_sync_completed: Notify,
 }
 
 impl Node {
     pub async fn new(cfg: Config) -> Result<Self> {
-        let tokio_runtime = Runtime::new().context("Failed to create Tokio runtime")?;
-
         let auth_token: Option<&str> = cfg.auth_token.as_deref();
 
-        let da_client = tokio_runtime
-            .block_on(async { celestia_rpc::Client::new(&cfg.celestia_url, auth_token).await })
+        let da_client = celestia_rpc::Client::new(&cfg.celestia_url, auth_token)
+            .await
             .context("Couldn't start RPC connection to celestia-node instance")?;
 
         Ok(Node {
             cfg,
             da_client,
-            genesis_sync_completed: bounded(1),
+            genesis_sync_completed: Notify::new(),
             pending_transactions: Arc::new(Mutex::new(Vec::new())),
             state: Arc::new(Mutex::new(State::new())),
-            tokio_runtime,
         })
     }
 
@@ -96,9 +99,7 @@ impl Node {
         let encoded_batch = bincode::serialize(&batch)?;
         let blob = Blob::new(self.cfg.namespace, encoded_batch)?;
 
-        self.tokio_runtime.block_on(async {
-            BlobClient::blob_submit(&self.da_client, &[blob], TxConfig::default()).await
-        })?;
+        BlobClient::blob_submit(&self.da_client, &[blob], TxConfig::default()).await?;
 
         Ok(batch)
     }
@@ -122,9 +123,7 @@ impl Node {
     }
 
     async fn sync_historical(&self) -> Result<()> {
-        let network_head = self
-            .tokio_runtime
-            .block_on(async { HeaderClient::header_network_head(&self.da_client).await })?;
+        let network_head = HeaderClient::header_network_head(&self.da_client).await?;
         let network_height = network_head.height();
         info!(
             "syncing historical blocks from {}-{}",
@@ -133,31 +132,27 @@ impl Node {
         );
 
         for height in self.cfg.start_height..network_height.value() {
-            let blobs = self.tokio_runtime.block_on(async {
-                BlobClient::blob_get_all(&self.da_client, height, &[self.cfg.namespace]).await
-            })?;
+            let blobs =
+                BlobClient::blob_get_all(&self.da_client, height, &[self.cfg.namespace]).await?;
             if let Some(blobs) = blobs {
                 self.process_l1_block(blobs).await;
             }
         }
 
-        let _ = self.genesis_sync_completed.0.send(()).await;
+        let _ = self.genesis_sync_completed.notify_one();
         info!("historical sync completed");
 
         Ok(())
     }
 
     async fn sync_incoming_blocks(&self) -> Result<()> {
-        let mut blobsub = self
-            .tokio_runtime
-            .block_on(async {
-                BlobClient::blob_subscribe(&self.da_client, self.cfg.namespace).await
-            })
+        let mut blobsub = BlobClient::blob_subscribe(&self.da_client, self.cfg.namespace)
+            .await
             .context("Failed to subscribe to app namespace")?;
 
-        self.genesis_sync_completed.1.recv().await?;
+        self.genesis_sync_completed.notified().await;
 
-        while let Some(result) = self.tokio_runtime.block_on(async { blobsub.next().await }) {
+        while let Some(result) = blobsub.next().await {
             match result {
                 Ok(blob_response) => {
                     info!(
@@ -194,12 +189,14 @@ impl Node {
 
     async fn start_batch_posting(&self) -> Result<()> {
         loop {
-            Timer::after(self.cfg.batch_interval).await;
+            tokio::time::sleep(self.cfg.batch_interval).await;
             match self.post_pending_batch().await {
                 Ok(batch) => {
                     let tx_count = batch.get_transactions().len();
                     if tx_count > 0 {
                         info!("batch posted with {} transactions", tx_count);
+                    } else {
+                        debug!("no transactions to post, skipping batch");
                     }
                 }
                 Err(e) => error!("posting batch: {}", e),
@@ -207,25 +204,43 @@ impl Node {
         }
     }
 
+    pub async fn start_server(self: Arc<Self>) -> Result<()> {
+        let app = Router::new()
+            .route("/submit_tx", post(submit_tx))
+            .with_state(self.clone());
+
+        let listen_addr = self.cfg.listen_addr.clone();
+        info!("webserver listening on {}", listen_addr);
+        axum::Server::bind(&listen_addr.parse().unwrap())
+            .serve(app.into_make_service())
+            .await
+            .context("Failed to start server")
+    }
+
     pub async fn start(self: Arc<Self>) -> Result<()> {
         let sync_handle = self.clone().sync();
 
-        let batch_posting = {
+        let webserver = {
             let node = self.clone();
-            smol::spawn(async move { node.start_batch_posting().await })
+            tokio::spawn(async move { node.start_server().await })
         };
 
-        let result = future::race(sync_handle, batch_posting).await;
+        let batch_posting = {
+            let node = self.clone();
+            tokio::spawn(async move { node.start_batch_posting().await })
+        };
 
-        match result {
-            Ok(_) => {
-                info!("Node shutting down");
-                Ok(())
+        tokio::select! {
+            _ = sync_handle => {
+                error!("sync task exited");
             }
-            Err(e) => {
-                error!("Node error: {:?}", e);
-                Err(anyhow::anyhow!("Node error: {:?}", e))
+            _ = webserver => {
+                error!("webserver task exited");
+            }
+            _ = batch_posting => {
+                error!("batch posting task exited");
             }
         }
+        Ok(())
     }
 }
