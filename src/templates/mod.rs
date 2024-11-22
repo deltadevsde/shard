@@ -1,4 +1,5 @@
 pub const CARGO_TEMPLATE: &str = include_str!("./Cargo.toml");
+pub const CARGO_LOCK_TEMPLATE: &str = include_str!("./Cargo.lock");
 pub const LIB_RS: &str = include_str!("./lib.rs");
 pub const MAIN_RS: &str = include_str!("./main.rs");
 pub const NODE_RS: &str = include_str!("./node.rs");

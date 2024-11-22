@@ -19,6 +19,11 @@ pub fn create_project(project_name: &str) -> Result<()> {
     let cargo_content = templates::CARGO_TEMPLATE.replace("shard-template", project_name);
     fs::write(project_dir.join("Cargo.toml"), cargo_content)
         .context("Failed to update Cargo.toml")?;
+    fs::write(
+        project_dir.join("Cargo.lock"),
+        templates::CARGO_LOCK_TEMPLATE,
+    )
+    .context("Failed to create Cargo.lock")?;
 
     println!("✨ Created new rollup project: {}", project_name);
     Ok(())

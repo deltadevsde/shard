@@ -3,6 +3,7 @@ use std::env;
 
 mod commands;
 mod templates;
+mod types;
 
 fn print_usage() {
     println!("Usage:");

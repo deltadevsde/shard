@@ -4,7 +4,6 @@ use axum::routing::post;
 use axum::Router;
 use celestia_rpc::{BlobClient, HeaderClient};
 use celestia_types::{nmt::Namespace, Blob, TxConfig};
-use futures_lite::future;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Notify;
@@ -139,8 +138,8 @@ impl Node {
             }
         }
 
-        let _ = self.genesis_sync_completed.notify_one();
         info!("historical sync completed");
+        self.genesis_sync_completed.notify_one();
 
         Ok(())
     }
@@ -172,18 +171,20 @@ impl Node {
     async fn sync(self: Arc<Self>) -> Result<()> {
         let genesis_sync = {
             let node = self.clone();
-            smol::spawn(async move { node.sync_historical().await })
+            tokio::spawn(async move { node.sync_historical().await })
         };
 
         let incoming_sync = {
             let node = self.clone();
-            smol::spawn(async move { node.sync_incoming_blocks().await })
+            tokio::spawn(async move { node.sync_incoming_blocks().await })
         };
 
-        let res = future::try_zip(genesis_sync, incoming_sync).await;
+        let res = tokio::join!(genesis_sync, incoming_sync);
+
         match res {
-            Ok(_) => Ok(()),
-            Err(e) => Err(e),
+            (Ok(Ok(_)), Ok(Ok(_))) => Ok(()),
+            (Err(e), _) | (_, Err(e)) => Err(anyhow::anyhow!("Task join error: {}", e)),
+            (Ok(Err(e)), _) | (_, Ok(Err(e))) => Err(e),
         }
     }
 
