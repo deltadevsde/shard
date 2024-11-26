@@ -19,7 +19,7 @@ impl TransactionField {
 
         syn::Field {
             attrs: vec![],
-            vis: syn::Visibility::Public(syn::token::Pub::default()),
+            vis: syn::Visibility::Inherited,
             ident: Some(field_ident),
             colon_token: Some(syn::token::Colon::default()),
             ty: field_type,

@@ -7,13 +7,10 @@ There is no bloat. There are no features. Because of the architectural simplicit
 Examples coming soon.
 
 ## Installation
+We use `just` as a task runner. After cloning the repo, run the following command to install the binary.
 
 ```bash
-# clone the repostitory
-git clone https://github.com/deltadevsde/shard.git
-
-# Install using cargo
-cargo install --path .
+just install
 ```
 
 ## Usage
@@ -47,23 +44,35 @@ After creating a new transaction type, you'll need to:
 
 ## Running the rollup
 
-```rust
-todo: 
-- mention a celestia network must be running
-- install
+To start a local celestia network, run
+
+```bash
+just celestia-up
 ```
 
 ### Starting the node
+After installing the binary for your rollup, you can run
 
-TODO
+```bash
+my-rollup-name serve
+```
 
 ### Creating a signer
+If you have enabled signature verification, you will need to use signers. Generating signers to use with your rollup is easy:
 
-TODO
+```bash
+my-rollup-name create-signer user1
+```
 
 ### Submitting transcations
 
-TODO
+Let's say you used the `SendMessage` transaction type example above. To send a transaction, you can run:
+
+```bash
+my-rollup-name submit-tx send-message --key_name user1 --nonce 0 "Here is my message!" "Ryan"
+```
+
+You can omit the `--key_name` if signature verification is disabled, and `--nonce` if you haven't implemented nonce controls.
 
 ## Notes
 

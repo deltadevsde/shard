@@ -220,5 +220,5 @@ fn print_transaction_info(tx_name: &str, fields: &[TransactionField]) {
     for field in fields {
         println!("  {}: {}", field.name, field.field_type);
     }
-    println!("\nUpdate the verify() and process() methods in src/tx.rs to add your custom logic!");
+    println!("\nUpdate the verify and process methods in src/tx.rs and src/state.rs to add your custom logic!");
 }
