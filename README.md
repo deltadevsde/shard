@@ -69,10 +69,10 @@ my-rollup-name create-signer user1
 Let's say you used the `SendMessage` transaction type example above. To send a transaction, you can run:
 
 ```bash
-my-rollup-name submit-tx send-message --key_name user1 --nonce 0 "Here is my message!" "Ryan"
+my-rollup-name submit-tx send-message --key-name user1 --nonce 0 "Here is my message!" "Ryan"
 ```
 
-You can omit the `--key_name` if signature verification is disabled, and `--nonce` if you haven't implemented nonce controls.
+You can omit the `--key-name` if signature verification is disabled, and `--nonce` if you haven't implemented nonce controls.
 
 ## Notes
 
