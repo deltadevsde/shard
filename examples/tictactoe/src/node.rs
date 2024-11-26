@@ -84,6 +84,7 @@ impl Node {
     }
 
     pub async fn queue_transaction(&self, tx: Transaction) -> Result<()> {
+        self.state.lock().await.validate_tx(tx.clone())?;
         self.pending_transactions.lock().await.push(tx);
         Ok(())
     }
