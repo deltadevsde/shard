@@ -1,10 +1,18 @@
 # shard-sdk: minimal rollup framework
 
+<p align="center">
+  <img src="./assets/banner.png" height="200px" align="center">
+</p>
+
 shard-sdk is a CLI tool designed to streamline the creation of simple based rollups on Celestia using a minimal template.
 
-There is no bloat. There are no features. Because of the architectural simplicity of based rollups, all you need to implement is the verification and processing of transactions, as well as state management.
+There is no bloat.
 
-Examples coming soon.
+There are no features.
+
+Because of the architectural simplicity of based rollups, all you need to implement is the verification and processing of transactions, as well as state management.
+
+Examples [here](./examples/)
 
 ## Installation
 We use `just` as a task runner. After cloning the repo, run the following command to install the binary.
@@ -81,3 +89,13 @@ Signature verification is disabled by default to allow for quick experimentation
 To enable it, change `SIGNATURE_VERIFICATION_ENABLED` in `your-rollup/src/tx.rs`  to `true` .
 
 Nonce control is also not implemented by default. To prevent replay attacks, ensure processed transactions increment an account nonce. See example here [COMING SOON].
+
+## Roadmap:
+- [ ] Implement State as trait to not need to copy syncing logic
+- [ ] Provide hooks for block processing, e.g. `OnRecvCelestiaBlock(ExtendedHeader)`
+- [ ] Improve UX for adding webserver endpoints, provide examples
+- [ ] Provide examples for nonce control
+- [ ] ZK template with sp1
+- [ ] Integrate prism sdk
+- [ ] Fully move to lumina once ready
+- [ ] Ship with an in browser light node for zk template
