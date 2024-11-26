@@ -3,10 +3,7 @@ use proc_macro2::Span;
 use quote::{quote, ToTokens};
 use std::fs;
 use std::path::Path;
-use syn::{
-    parse2, parse_file, parse_quote, parse_str, Arm, Expr, Field, Fields, FieldsNamed, Ident, Item,
-    Type, Variant,
-};
+use syn::{parse2, parse_file, parse_quote, Arm, Expr, Fields, FieldsNamed, Ident, Item, Variant};
 
 use crate::types::TransactionField;
 
@@ -115,33 +112,35 @@ pub fn modify_tx_file(tx_name: &str, fields: &[TransactionField]) -> Result<Stri
 
     for stmt in &mut verify_method.block.stmts {
         if let syn::Stmt::Expr(Expr::Match(match_expr), _) = stmt {
-            if let Expr::Field(field_expr) = &match_expr.expr.as_ref() {
-                if field_expr.member.to_token_stream().to_string() == "tx_type" {
-                    let tx_name_ident = Ident::new(tx_name, Span::call_site());
-                    let verify_arm: Arm = if fields.is_empty() {
-                        parse2(quote! {
-                            TransactionType::#tx_name_ident => Ok(())
-                        })?
-                    } else {
-                        let field_idents = fields
-                            .iter()
-                            .map(|field| Ident::new(&field.name, Span::call_site()));
-                        parse2(quote! {
-                            TransactionType::#tx_name_ident { #(#field_idents),* } => Ok(())
-                        })?
-                    };
-
-                    // Remove the existing Noop arm here as well
-                    match_expr.arms.retain(|arm| {
-                        if let syn::Pat::Path(path) = &arm.pat {
-                            path.path.segments.last().unwrap().ident != "Noop"
+            if let Expr::Reference(field_expr) = &match_expr.expr.as_ref() {
+                if let Expr::Field(field_expr) = &field_expr.expr.as_ref() {
+                    if field_expr.member.to_token_stream().to_string() == "tx_type" {
+                        let tx_name_ident = Ident::new(tx_name, Span::call_site());
+                        let verify_arm: Arm = if fields.is_empty() {
+                            parse2(quote! {
+                                TransactionType::#tx_name_ident => Ok(())
+                            })?
                         } else {
-                            true
-                        }
-                    });
+                            let field_idents = fields
+                                .iter()
+                                .map(|field| Ident::new(&field.name, Span::call_site()));
+                            parse2(quote! {
+                                TransactionType::#tx_name_ident { #(#field_idents),* } => Ok(())
+                            })?
+                        };
 
-                    match_expr.arms.push(verify_arm);
-                    break;
+                        // Remove the existing Noop arm here as well
+                        match_expr.arms.retain(|arm| {
+                            if let syn::Pat::Path(path) = &arm.pat {
+                                path.path.segments.last().unwrap().ident != "Noop"
+                            } else {
+                                true
+                            }
+                        });
+
+                        match_expr.arms.push(verify_arm);
+                        break;
+                    }
                 }
             }
         }

@@ -5,6 +5,8 @@ mod commands;
 mod templates;
 mod types;
 
+use commands::create_tx::{create_transaction, parse_fields};
+
 fn print_usage() {
     println!("Usage:");
     println!("  shard init [project-name]");
@@ -27,8 +29,8 @@ fn main() -> Result<()> {
             }
 
             let tx_name = &args[2];
-            let fields = commands::create_tx::parse_fields(&args[3..]);
-            commands::create_tx::create_transaction(".", tx_name, fields)?;
+            let fields = parse_fields(&args[3..]);
+            create_transaction(".", tx_name, fields)?;
         }
         _ => print_usage(),
     }

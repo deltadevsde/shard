@@ -39,7 +39,7 @@ impl Transaction {
                 .verify_signature(&self.signature_msg()?, &self.signature)?;
         }
 
-        match self.tx_type {
+        match &self.tx_type {
             TransactionType::Noop => Ok(()),
         }
     }
