@@ -94,13 +94,17 @@ impl Node {
         if pending_txs.is_empty() {
             return Ok(Batch::new(Vec::new()));
         }
-
+    
         let batch = Batch::new(pending_txs.drain(..).collect());
         let encoded_batch = bincode::serialize(&batch)?;
-        let blob = Blob::new(self.cfg.namespace, encoded_batch)?;
-
+        let blob = Blob::new(
+            self.cfg.namespace,
+            encoded_batch,
+            celestia_types::AppVersion::V2,
+        )?;
+    
         BlobClient::blob_submit(&self.da_client, &[blob], TxConfig::default()).await?;
-
+    
         Ok(batch)
     }
 
@@ -132,8 +136,13 @@ impl Node {
         );
 
         for height in self.cfg.start_height..network_height.value() {
-            let blobs =
-                BlobClient::blob_get_all(&self.da_client, height, &[self.cfg.namespace]).await?;
+            let blobs = BlobClient::blob_get_all(
+                &self.da_client,
+                height,
+                &[self.cfg.namespace],
+                celestia_types::AppVersion::V2,
+            )
+            .await?;
             if let Some(blobs) = blobs {
                 self.process_l1_block(blobs).await;
             }
