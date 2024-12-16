@@ -3,7 +3,7 @@ use async_lock::Mutex;
 use axum::routing::post;
 use axum::Router;
 use celestia_rpc::{BlobClient, HeaderClient};
-use celestia_types::{nmt::Namespace, Blob, TxConfig};
+use celestia_types::{nmt::Namespace, Blob, TxConfig, AppVersion};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Notify;
@@ -100,7 +100,7 @@ impl Node {
         let blob = Blob::new(
             self.cfg.namespace,
             encoded_batch,
-            celestia_types::AppVersion::V3,
+            AppVersion::V3,
         )?;
     
         BlobClient::blob_submit(&self.da_client, &[blob], TxConfig::default()).await?;
@@ -139,8 +139,7 @@ impl Node {
             let blobs = BlobClient::blob_get_all(
                 &self.da_client,
                 height,
-                &[self.cfg.namespace],
-                celestia_types::AppVersion::V3,
+                &[self.cfg.namespace]
             ).await?;
             if let Some(blobs) = blobs {
                 self.process_l1_block(blobs).await;
