@@ -100,7 +100,7 @@ impl Node {
         let blob = Blob::new(
             self.cfg.namespace,
             encoded_batch,
-            celestia_types::AppVersion::V2,
+            celestia_types::AppVersion::V3,
         )?;
     
         BlobClient::blob_submit(&self.da_client, &[blob], TxConfig::default()).await?;
@@ -140,9 +140,8 @@ impl Node {
                 &self.da_client,
                 height,
                 &[self.cfg.namespace],
-                celestia_types::AppVersion::V2,
-            )
-            .await?;
+                celestia_types::AppVersion::V3,
+            ).await?;
             if let Some(blobs) = blobs {
                 self.process_l1_block(blobs).await;
             }
