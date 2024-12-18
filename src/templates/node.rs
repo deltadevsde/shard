@@ -3,7 +3,7 @@ use async_lock::Mutex;
 use axum::routing::post;
 use axum::Router;
 use celestia_rpc::{BlobClient, HeaderClient};
-use celestia_types::{nmt::Namespace, Blob, TxConfig};
+use celestia_types::{nmt::Namespace, Blob, TxConfig, AppVersion};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Notify;
@@ -94,13 +94,17 @@ impl Node {
         if pending_txs.is_empty() {
             return Ok(Batch::new(Vec::new()));
         }
-
+    
         let batch = Batch::new(pending_txs.drain(..).collect());
         let encoded_batch = bincode::serialize(&batch)?;
-        let blob = Blob::new(self.cfg.namespace, encoded_batch)?;
-
+        let blob = Blob::new(
+            self.cfg.namespace,
+            encoded_batch,
+            AppVersion::V3,
+        )?;
+    
         BlobClient::blob_submit(&self.da_client, &[blob], TxConfig::default()).await?;
-
+    
         Ok(batch)
     }
 
@@ -132,8 +136,11 @@ impl Node {
         );
 
         for height in self.cfg.start_height..network_height.value() {
-            let blobs =
-                BlobClient::blob_get_all(&self.da_client, height, &[self.cfg.namespace]).await?;
+            let blobs = BlobClient::blob_get_all(
+                &self.da_client,
+                height,
+                &[self.cfg.namespace]
+            ).await?;
             if let Some(blobs) = blobs {
                 self.process_l1_block(blobs).await;
             }
